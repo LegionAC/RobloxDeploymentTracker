@@ -6,8 +6,33 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"time"
 )
+
+func waitForFile(path string) {
+	for {
+		_, err := os.Stat(path)
+		if err == nil {
+			break
+		}
+		time.Sleep(time.Second * 5)
+	}
+}
+
+func fileDownload(path string) {
+	var lastSize int64
+	for {
+		fileInfo, _ := os.Stat(path)
+		if fileInfo.Size() == lastSize && lastSize > 0 {
+			break
+		}
+
+		lastSize = fileInfo.Size()
+		time.Sleep(time.Second * 5)
+	}
+}
 
 func getDeployment() {
 	var latestHash string
@@ -48,14 +73,14 @@ func getDeployment() {
 
 		if hash == latestHash {
 			fmt.Println(hash)
-			time.Sleep(3 * time.Second)
+			time.Sleep(time.Minute * 10)
 			fmt.Println("Hash identical, skipping...")
 			continue
 		}
 
 		fmt.Println("Getting deployment...")
 
-		deploymentURL := "https://setup.rbxcdn.com/" + hash + "-RobloxApp.zip"
+		deploymentURL := "https://www.roblox.com/download/client"
 
 		req, err = http.NewRequest(method, deploymentURL, nil)
 		if err != nil {
@@ -70,14 +95,41 @@ func getDeployment() {
 			fmt.Println("Error on request made: ", err)
 			return
 		}
-		out, _ := os.Create(hash + "-RobloxApp.zip")
+
+		out, _ := os.Create("RobloxPlayerInstaller.exe")
 
 		io.Copy(out, resp.Body)
 		out.Close()
 
 		defer resp.Body.Close()
-
 		os.WriteFile("latestVersion.txt", []byte(hash), 0644)
+
+		waitForFile("./RobloxPlayerInstaller.exe")
+
+		fileDownload("./RobloxPlayerInstaller.exe")
+
+		cmd := exec.Command("./RobloxPlayerInstaller.exe")
+		err = cmd.Run()
+
+		cmd = exec.Command("taskkill", "/F", "/IM", "RobloxPlayerBeta.exe")
+		err = cmd.Run()
+
+		home, _ := os.UserHomeDir()
+		pathToRoblox := filepath.Join(home, "AppData", "Local", "Roblox", "Versions", hash)
+		pathToStudio := filepath.Join(home, "AppData", "Local", "Roblox", "Versions", "RobloxStudioInstaller.exe")
+
+		fmt.Println("Compressing file...")
+
+		cmd = exec.Command("powershell", "-Command", "Compress-Archive -Path '"+pathToRoblox+"' -DestinationPath './"+hash+".zip'")
+		cmd.Run()
+
+		fmt.Println("File finished compressing.")
+
+		os.RemoveAll(pathToRoblox)
+		os.Remove(pathToStudio)
+		os.Remove("./RobloxPlayerInstaller.exe")
+
+		fmt.Println("Deployment ready.")
 	}
 }
 
